@@ -64,7 +64,15 @@ async function copyToClipboard() {
 
 function init() {
     translatePage(currentLang);
-    document.getElementById('proxy-address').value = window.location.hostname;
+
+    const port = window.location.port;
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    const isDefaultPort = (protocol === 'http:' && port === '80') ||
+                          (protocol === 'https:' && port === '443') ||
+                          port === '';
+
+    document.getElementById('proxy-address').value = isDefaultPort ? hostname : `${hostname}:${port}`;
 
     document.querySelectorAll('input[name="runtime"]').forEach(input => {
         input.addEventListener('change', generateCommand);
