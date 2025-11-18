@@ -1,6 +1,6 @@
 port: 80
 log_level: info
-whitelist_mode: true
+whitelist_mode: false
 
 auth:
   username: "admin"
@@ -12,6 +12,7 @@ defaults:
   cache_dir: /tmp/oci-proxy-cache
   cache_max_size: 1g
   # upstream_proxy: "http://127.0.0.1:8080"
+
 registries:
   nvcr.io:
     auth:

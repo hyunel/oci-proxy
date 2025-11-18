@@ -20,6 +20,12 @@ go build -o oci-proxy ./cmd/oci-proxy
 ### Docker
 
 ```bash
+docker run -p 80:80 -v $(pwd)/config.yaml:/app/config.yaml ghcr.io/hyunel/oci-proxy:latest
+```
+
+Or build from source:
+
+```bash
 docker build -t oci-proxy .
 docker run -p 80:80 -v $(pwd)/config.yaml:/app/config.yaml oci-proxy
 ```
