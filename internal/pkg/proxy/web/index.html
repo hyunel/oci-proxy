@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCI Proxy</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="card-header">
+                <h1 class="card-title" data-i18n="title">OCI Proxy</h1>
+                <p class="card-description" data-i18n="subtitle">Accelerate Docker image downloads through proxy</p>
+            </div>
+
+            <div class="form-group">
+                <label class="label" data-i18n="selectRuntime">Container Runtime</label>
+                <div class="runtime-selector">
+                    <div class="runtime-option">
+                        <input type="radio" id="runtime-docker" name="runtime" value="docker" checked>
+                        <label for="runtime-docker">Docker</label>
+                    </div>
+                    <div class="runtime-option">
+                        <input type="radio" id="runtime-podman" name="runtime" value="podman">
+                        <label for="runtime-podman">Podman</label>
+                    </div>
+                    <div class="runtime-option">
+                        <input type="radio" id="runtime-nerdctl" name="runtime" value="nerdctl">
+                        <label for="runtime-nerdctl">Nerdctl</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="label" for="proxy-address" data-i18n="proxyAddress">Proxy Server Address</label>
+                <input type="text" id="proxy-address" class="input" data-i18n-placeholder="proxyPlaceholder">
+                <p class="hint" data-i18n="proxyHint">Enter your OCI Proxy server address</p>
+            </div>
+
+            <div class="form-group">
+                <label class="label" for="image" data-i18n="imageAddress">Image Address</label>
+                <input type="text" id="image" class="input" data-i18n-placeholder="imagePlaceholder">
+                <p class="hint" data-i18n="imageExample">Supported formats: nginx:latest, ubuntu:22.04, etc.</p>
+            </div>
+
+            <div class="command-output">
+                <button class="btn btn-primary copy-btn" id="copy-btn" title="Copy to clipboard" disabled>
+                    <svg class="btn-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                    </svg>
+                </button>
+                <pre id="command-text" data-i18n="waitingInput">Please enter image address...</pre>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>

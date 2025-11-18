@@ -1,0 +1,27 @@
+port: 80
+log_level: info
+whitelist_mode: true
+
+auth:
+  username: "admin"
+  password: "password"
+
+default_registry: registry-1.docker.io
+
+defaults:
+  cache_dir: /tmp/oci-proxy-cache
+  cache_max_size: 1g
+  # upstream_proxy: "http://127.0.0.1:8080"
+registries:
+  nvcr.io:
+    auth:
+      username: "my-username"
+      password: "my-secret-token"
+    cache_dir: /tmp/nvcr-cache
+    upstream_proxy: "socks5://user:pass@host:port"
+  another.registry.com:
+    auth:
+      username: ""
+      password: ""
+  localhost:5000:
+    insecure: true
