@@ -3,7 +3,11 @@ import { i18n, detectLanguage, translatePage } from './i18n.js';
 const currentLang = detectLanguage();
 const t = key => i18n[currentLang][key];
 
-let proxyInput, imageInput, commandText, copyBtn, copyLabel, output, promptRuntime;
+const DOCKER_HUB = 'docker.io';
+
+let mode = 'command';
+let proxyInput, imageInput, commandText, copyBtn, copyLabel;
+let output, outputPath, outputNote, promptRuntime, modeButtons;
 
 function detectProxyAddress() {
     const { protocol, hostname, port } = window.location;
@@ -32,28 +36,110 @@ function normalizeImage() {
     }
 }
 
-function generateCommand() {
+// same rule as the docker CLI: only a domain may hold ".", ":" or uppercase
+function registryOf(image) {
+    const slash = image.indexOf('/');
+    if (slash < 0) {
+        return DOCKER_HUB;
+    }
+    const first = image.slice(0, slash);
+    const isDomain = /[.:]/.test(first) || first === 'localhost' || first !== first.toLowerCase();
+    return isDomain ? first : DOCKER_HUB;
+}
+
+function commandBlock(runtime, host, image) {
+    if (!host || !image) {
+        return { body: t(host ? 'waitingInput' : 'waitingProxy'), empty: true };
+    }
+
+    const proxied = `${host}/${image}`;
+    return {
+        body: [
+            `${runtime} pull ${proxied}`,
+            `${runtime} tag ${proxied} ${image}`,
+            `${runtime} rmi ${proxied}`
+        ].join(' && \\\n')
+    };
+}
+
+function mirrorBlock(runtime, host, image) {
+    if (!host) {
+        return { body: t('waitingProxy'), empty: true };
+    }
+
+    const registry = registryOf(image);
+    const isHub = registry === DOCKER_HUB;
+    const pull = `${runtime} pull ${image || 'nginx:latest'}`;
+
+    if (runtime === 'docker') {
+        if (!isHub) {
+            return {
+                body: t('dockerHubOnlyBody').replace('{registry}', registry),
+                note: t('dockerHubOnlyNote').replace('{registry}', registry),
+                warn: true,
+                empty: true
+            };
+        }
+        return {
+            path: '/etc/docker/daemon.json',
+            body: `{\n  "registry-mirrors": ["https://${host}"]\n}`,
+            note: `${t('restartDocker')} ${t('thenPull')} ${pull}`
+        };
+    }
+
+    if (runtime === 'podman') {
+        return {
+            path: '/etc/containers/registries.conf',
+            body: [
+                '[[registry]]',
+                `prefix = "${registry}"`,
+                `location = "${isHub ? host : `${host}/${registry}`}"`
+            ].join('\n'),
+            note: `${t('podmanApplies')} ${t('thenPull')} ${pull}`
+        };
+    }
+
+    return {
+        path: `/etc/containerd/certs.d/${registry}/hosts.toml`,
+        body: [
+            `server = "https://${isHub ? 'registry-1.docker.io' : registry}"`,
+            '',
+            `[host."https://${host}/v2${isHub ? '' : `/${registry}`}"]`,
+            '  capabilities = ["pull", "resolve"]',
+            '  override_path = true'
+        ].join('\n'),
+        note: `${t('restartContainerd')} ${t('thenPull')} ${pull}`
+    };
+}
+
+function render() {
     const runtime = document.querySelector('input[name="runtime"]:checked').value;
     const host = proxyInput.value.trim();
     const image = imageInput.value.trim();
 
     promptRuntime.textContent = runtime;
 
-    if (!host || !image) {
-        commandText.textContent = t(host ? 'waitingInput' : 'waitingProxy');
-        output.dataset.empty = 'true';
-        copyBtn.disabled = true;
-        return;
-    }
+    const block = mode === 'mirror'
+        ? mirrorBlock(runtime, host, image)
+        : commandBlock(runtime, host, image);
 
-    const proxied = `${host}/${image}`;
-    commandText.textContent = [
-        `${runtime} pull ${proxied}`,
-        `${runtime} tag ${proxied} ${image}`,
-        `${runtime} rmi ${proxied}`
-    ].join(' && \\\n');
-    output.dataset.empty = 'false';
-    copyBtn.disabled = false;
+    commandText.textContent = block.body;
+    output.dataset.empty = block.empty ? 'true' : 'false';
+    copyBtn.disabled = Boolean(block.empty);
+
+    outputPath.textContent = block.path || '';
+    outputPath.hidden = !block.path;
+    outputNote.textContent = block.note || '';
+    outputNote.hidden = !block.note;
+    outputNote.dataset.warn = block.warn ? 'true' : 'false';
+}
+
+function setMode(next) {
+    mode = next;
+    modeButtons.forEach(button => {
+        button.setAttribute('aria-selected', String(button.dataset.mode === next));
+    });
+    render();
 }
 
 async function copyToClipboard() {
@@ -102,7 +188,10 @@ function init() {
     copyBtn = document.getElementById('copy-btn');
     copyLabel = document.getElementById('copy-label');
     output = document.getElementById('output');
+    outputPath = document.getElementById('output-path');
+    outputNote = document.getElementById('output-note');
     promptRuntime = document.getElementById('prompt-runtime');
+    modeButtons = [...document.querySelectorAll('.mode')];
 
     translatePage(currentLang);
 
@@ -111,11 +200,11 @@ function init() {
 
     proxyInput.addEventListener('input', () => {
         fitHost();
-        generateCommand();
+        render();
     });
     imageInput.addEventListener('input', () => {
         normalizeImage();
-        generateCommand();
+        render();
     });
     imageInput.addEventListener('keydown', event => {
         if (event.key === 'Enter') {
@@ -124,11 +213,14 @@ function init() {
         }
     });
     document.querySelectorAll('input[name="runtime"]').forEach(input => {
-        input.addEventListener('change', generateCommand);
+        input.addEventListener('change', render);
+    });
+    modeButtons.forEach(button => {
+        button.addEventListener('click', () => setMode(button.dataset.mode));
     });
     copyBtn.addEventListener('click', copyToClipboard);
 
-    generateCommand();
+    render();
     checkHealth();
     imageInput.focus();
 }

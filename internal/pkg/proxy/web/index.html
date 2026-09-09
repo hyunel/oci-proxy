@@ -51,7 +51,12 @@
 
         <section class="output" id="output" data-empty="true">
             <div class="output-bar">
-                <span class="output-label" data-i18n="generated">generated</span>
+                <div class="modes" role="tablist">
+                    <button type="button" class="mode" id="mode-command" data-mode="command"
+                            aria-selected="true" data-i18n="modeCommand">command</button>
+                    <button type="button" class="mode" id="mode-mirror" data-mode="mirror"
+                            aria-selected="false" data-i18n="modeMirror">mirror config</button>
+                </div>
                 <button class="copy" id="copy-btn" data-i18n-title="copy" disabled>
                     <svg class="copy-icon icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <rect x="9" y="9" width="12" height="12" rx="2"></rect>
@@ -63,7 +68,9 @@
                     <span class="copy-label" id="copy-label" data-i18n="copy">copy</span>
                 </button>
             </div>
-            <pre id="command-text" data-i18n="waitingInput">Waiting for an image name.</pre>
+            <p class="output-path" id="output-path" hidden></p>
+            <pre id="command-text" data-i18n="waitingInput">Waiting for an image reference.</pre>
+            <p class="output-note" id="output-note" hidden></p>
         </section>
     </main>
 

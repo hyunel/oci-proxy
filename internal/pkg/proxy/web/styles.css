@@ -290,11 +290,41 @@ body::after {
     border-bottom: 1px solid var(--line);
 }
 
-.output-label {
-    font-size: 0.6875rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
+.modes {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.mode {
+    padding: 0.25rem 0.5rem;
+    border: 0;
+    background: none;
     color: var(--faint);
+    font: inherit;
+    font-size: 0.6875rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 160ms ease, background-color 160ms ease;
+}
+
+.mode:hover { color: var(--dim); }
+
+.mode[aria-selected="true"] {
+    color: var(--accent);
+    background: var(--accent-wash);
+}
+
+.output-path {
+    padding: 0.75rem 1rem 0;
+    font-size: 0.75rem;
+    color: var(--faint);
+    word-break: break-all;
+}
+
+.output-path::before {
+    content: "→ ";
+    color: var(--accent);
 }
 
 .output pre {
@@ -308,6 +338,22 @@ body::after {
 }
 
 .output[data-empty="true"] pre { color: var(--faint); }
+
+.output-note {
+    padding: 0 1rem 1rem;
+    font-size: 0.75rem;
+    line-height: 1.7;
+    color: var(--dim);
+}
+
+.output-note code {
+    font: inherit;
+    color: var(--text);
+}
+
+.output-note[data-warn="true"] {
+    color: var(--accent);
+}
 
 .copy {
     display: inline-flex;
