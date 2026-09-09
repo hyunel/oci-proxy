@@ -1,35 +1,37 @@
 export const i18n = {
     en: {
-        title: 'OCI Proxy',
-        subtitle: 'Accelerate Docker image downloads through proxy, automatically generate download and rename commands',
-        selectRuntime: 'Container Runtime',
-        proxyAddress: 'Proxy Server Address',
+        subtitle: 'Type an image, copy the command.',
+        selectRuntime: 'Container runtime',
         proxyPlaceholder: 'proxy.example.com',
-        proxyHint: 'Enter your OCI Proxy server address',
-        imageAddress: 'Image Address',
-        imagePlaceholder: 'nginx:latest or docker.io/library/nginx:latest',
-        imageExample: 'Supported formats: nginx:latest, ubuntu:22.04, registry.k8s.io/pause:3.9, etc.',
-        copy: 'Copy',
-        copied: 'Copied!',
-        waitingInput: 'Please enter image address...',
-        waitingProxy: 'Please enter proxy server address...',
-        formatError: 'Invalid image address format'
+        proxyHint: 'Proxy server address, click to edit',
+        imageAddress: 'Image reference',
+        imagePlaceholder: 'nginx:latest',
+        imageExample: 'ubuntu:22.04 · bitnami/nginx · ghcr.io/astral-sh/uv · pasting a whole pull command works too · Enter to copy',
+        generated: 'generated',
+        copy: 'copy',
+        copied: 'copied',
+        waitingInput: 'Waiting for an image reference.',
+        waitingProxy: 'Waiting for a proxy address.',
+        statusPending: 'checking',
+        statusUp: 'online',
+        statusDown: 'unreachable'
     },
     zh: {
-        title: 'OCI Proxy',
-        subtitle: '通过代理加速下载 Docker 镜像，自动生成下载和重命名命令',
+        subtitle: '填镜像名，复制命令。',
         selectRuntime: '容器运行时',
-        proxyAddress: '代理服务器地址',
         proxyPlaceholder: 'proxy.example.com',
-        proxyHint: '请输入您的 OCI Proxy 服务器地址',
+        proxyHint: '代理服务器地址，可点击修改',
         imageAddress: '镜像地址',
-        imagePlaceholder: 'nginx:latest 或 docker.io/library/nginx:latest',
-        imageExample: '支持格式: nginx:latest, ubuntu:22.04, registry.k8s.io/pause:3.9 等',
+        imagePlaceholder: 'nginx:latest',
+        imageExample: 'ubuntu:22.04 · bitnami/nginx · ghcr.io/astral-sh/uv · 也可粘贴完整 pull 命令 · 回车复制',
+        generated: '生成结果',
         copy: '复制',
-        copied: '已复制!',
-        waitingInput: '请输入镜像地址...',
-        waitingProxy: '请输入代理服务器地址...',
-        formatError: '镜像地址格式错误'
+        copied: '已复制',
+        waitingInput: '等待输入镜像地址。',
+        waitingProxy: '等待输入代理地址。',
+        statusPending: '检测中',
+        statusUp: '在线',
+        statusDown: '无法连接'
     }
 };
 
@@ -39,19 +41,19 @@ export function detectLanguage() {
 }
 
 export function translatePage(lang) {
-    document.querySelectorAll('[data-i18n]').forEach(el => {
-        const key = el.getAttribute('data-i18n');
-        if (i18n[lang][key]) {
-            el.textContent = i18n[lang][key];
-        }
-    });
+    const apply = (attribute, set) => {
+        document.querySelectorAll(`[${attribute}]`).forEach(el => {
+            const value = i18n[lang][el.getAttribute(attribute)];
+            if (value) {
+                set(el, value);
+            }
+        });
+    };
 
-    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
-        const key = el.getAttribute('data-i18n-placeholder');
-        if (i18n[lang][key]) {
-            el.placeholder = i18n[lang][key];
-        }
-    });
+    apply('data-i18n', (el, value) => { el.textContent = value; });
+    apply('data-i18n-placeholder', (el, value) => { el.placeholder = value; });
+    apply('data-i18n-title', (el, value) => { el.title = value; });
+    apply('data-i18n-aria-label', (el, value) => { el.setAttribute('aria-label', value); });
 
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
 }
