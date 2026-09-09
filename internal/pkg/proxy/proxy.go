@@ -29,6 +29,7 @@ func NewProxy(cfg *config.Config) (*ProxyServer, error) {
 	executor := NewExecutor(cfg)
 
 	pipeline := NewPipeline().
+		Use(middleware.NewHeaderMiddleware(cfg)).
 		Use(middleware.NewCacheMiddleware(cacheManager)).
 		Use(middleware.NewAuthMiddleware(cfg)).
 		SetFinalHandler(executor.Execute)
