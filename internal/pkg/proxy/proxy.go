@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"strings"
+	"time"
 
 	"oci-proxy/internal/pkg/config"
 	"oci-proxy/internal/pkg/logging"
@@ -58,13 +59,29 @@ func NewProxy(cfg *config.Config) (*ProxyServer, error) {
 	return ps, nil
 }
 
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(status int) {
+	r.status = status
+	r.ResponseWriter.WriteHeader(status)
+}
+
+// keeps http.ResponseController able to reach the real writer, which ReverseProxy needs to flush
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
 func newProxyHandler(proxy *httputil.ReverseProxy, cacheManager *CacheManager, cfg *config.Config) http.Handler {
 	mux := http.NewServeMux()
 
 	logRequest := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			logging.Logger.Info("Request", "method", r.Method, "path", r.URL.Path)
-			next.ServeHTTP(w, r)
+			start := time.Now()
+			recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+			next.ServeHTTP(recorder, r)
+			logging.Logger.Info("Request", "method", r.Method, "path", r.URL.Path,
+				"status", recorder.status, "duration", time.Since(start).Round(time.Millisecond))
 		})
 	}
 

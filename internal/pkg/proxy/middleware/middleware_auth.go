@@ -62,10 +62,10 @@ func (m *AuthMiddleware) Process(req *http.Request, next Handler) (*http.Respons
 		return resp, nil
 	}
 
-	// a redirect across hosts drops Authorization, so the challenge has to be
+	// a cross-host redirect drops Authorization, so the challenge has to be
 	// answered where it was issued rather than at the original URL
 	target := req.URL
-	if resp.Request != nil && resp.Request.URL != nil {
+	if resp.Request != nil {
 		target = resp.Request.URL
 	}
 
