@@ -3,6 +3,7 @@ package middleware
 import (
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -59,10 +60,19 @@ func (m *CacheMiddleware) tryServeFromCache(req *http.Request) (*http.Response, 
 	}
 
 	logging.Logger.Debug("serving blob from cache", "digest", digest)
+
+	// ReverseProxy forwards headers verbatim and never derives them from
+	// ContentLength, so without these the client gets a chunked, sniffed
+	// response and cannot show download progress.
+	header := http.Header{}
+	header.Set("Content-Type", "application/octet-stream")
+	header.Set("Content-Length", strconv.FormatInt(size, 10))
+	header.Set("Docker-Content-Digest", digest)
+
 	return &http.Response{
 		StatusCode:    http.StatusOK,
 		Body:          reader,
-		Header:        make(http.Header),
+		Header:        header,
 		ContentLength: size,
 		Request:       req,
 	}, true
