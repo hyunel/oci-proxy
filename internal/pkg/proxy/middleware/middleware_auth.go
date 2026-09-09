@@ -62,14 +62,20 @@ func (m *AuthMiddleware) Process(req *http.Request, next Handler) (*http.Respons
 		return resp, nil
 	}
 
-	if sent != nil {
-		// drop only the token that was just rejected, never one refreshed concurrently
+	// a redirect across hosts drops Authorization, so the challenge has to be
+	// answered where it was issued rather than at the original URL
+	target := req.URL
+	if resp.Request != nil && resp.Request.URL != nil {
+		target = resp.Request.URL
+	}
+
+	if sent != nil && target.Host == req.URL.Host {
 		m.tokens.CompareAndDelete(sent.key, sent)
 	}
 
-	retried, err := m.retry(req, challenge, next)
+	retried, err := m.retry(req, target, challenge, next)
 	if err != nil {
-		logging.Logger.Error("registry authentication failed", "registry", req.URL.Host, "error", err)
+		logging.Logger.Error("registry authentication failed", "registry", target.Host, "error", err)
 		return resp, nil
 	}
 	resp.Body.Close()
@@ -95,7 +101,7 @@ func (m *AuthMiddleware) authorize(req *http.Request) (*token, *http.Request) {
 	return nil, req
 }
 
-func (m *AuthMiddleware) retry(req *http.Request, challenge map[string]string, next Handler) (*http.Response, error) {
+func (m *AuthMiddleware) retry(req *http.Request, target *url.URL, challenge map[string]string, next Handler) (*http.Response, error) {
 	t, err := m.token(req.Context(), tokenKey(req.URL.Host, challenge["scope"]), req.URL.Host, challenge)
 	if err != nil {
 		return nil, err
@@ -111,6 +117,8 @@ func (m *AuthMiddleware) retry(req *http.Request, challenge map[string]string, n
 			return nil, err
 		}
 	}
+	out.URL = target
+	out.Host = target.Host
 	out.Header.Set("Authorization", "Bearer "+t.value)
 	return next(out)
 }
