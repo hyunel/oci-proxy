@@ -1,7 +1,7 @@
 package config
 
 import (
-	"encoding/base64"
+	"crypto/subtle"
 	"net/http"
 )
 
@@ -10,22 +10,26 @@ type Auth struct {
 	Password string `yaml:"password,omitempty"`
 }
 
+func (a *Auth) IsSet() bool {
+	return a != nil && (a.Username != "" || a.Password != "")
+}
+
 func (a *Auth) IsAuthenticated(r *http.Request) bool {
-	if a.Username == "" || a.Password == "" {
+	if !a.IsSet() {
 		return true
 	}
 	user, pass, ok := r.BasicAuth()
 	if !ok {
 		return false
 	}
-	return user == a.Username && pass == a.Password
+	return subtle.ConstantTimeCompare([]byte(user), []byte(a.Username))&
+		subtle.ConstantTimeCompare([]byte(pass), []byte(a.Password)) == 1
 }
 
 func (a *Auth) ApplyToRequest(req *http.Request) bool {
-	if a.Username == "" || a.Password == "" {
+	if !a.IsSet() {
 		return false
 	}
-	auth := base64.StdEncoding.EncodeToString([]byte(a.Username + ":" + a.Password))
-	req.Header.Set("Authorization", "Basic "+auth)
+	req.SetBasicAuth(a.Username, a.Password)
 	return true
 }

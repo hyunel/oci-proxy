@@ -78,24 +78,13 @@ func (m *CacheMiddleware) cacheResponse(req *http.Request, resp *http.Response) 
 		return resp
 	}
 
-	cache := m.cacheManager.GetCache(req.URL.Host)
-	pr, pw := io.Pipe()
-	tee := io.TeeReader(resp.Body, pw)
-
-	go func() {
-		defer pr.Close()
-		if err := cache.Put(digest, pr, digest); err != nil {
-			logging.Logger.Error("failed to cache blob", "digest", digest, "error", err)
-		} else {
-			logging.Logger.Info("successfully cached blob", "digest", digest)
-		}
-	}()
-
-	resp.Body = &cacheWriter{
-		original:   resp.Body,
-		teeReader:  tee,
-		pipeWriter: pw,
+	writer, err := m.cacheManager.GetCache(req.URL.Host).NewWriter(digest, digest)
+	if err != nil {
+		logging.Logger.Debug("not caching blob", "digest", digest, "error", err)
+		return resp
 	}
+
+	resp.Body = &cacheWriter{body: resp.Body, writer: writer, digest: digest}
 	return resp
 }
 
@@ -116,21 +105,46 @@ func extractDigestFromPath(path string) string {
 }
 
 type cacheWriter struct {
-	original   io.ReadCloser
-	teeReader  io.Reader
-	pipeWriter *io.PipeWriter
-	closeOnce  sync.Once
+	body   io.ReadCloser
+	writer *cache.Writer
+	digest string
+	once   sync.Once
 }
 
 func (cw *cacheWriter) Read(p []byte) (int, error) {
-	return cw.teeReader.Read(p)
+	n, err := cw.body.Read(p)
+	if n > 0 && cw.writer != nil {
+		if _, writeErr := cw.writer.Write(p[:n]); writeErr != nil {
+			// caching gives up here, but the client keeps its download
+			logging.Logger.Error("failed to write blob to cache", "digest", cw.digest, "error", writeErr)
+			cw.writer.Close()
+			cw.writer = nil
+		}
+	}
+	if err == io.EOF {
+		cw.finish(true)
+	}
+	return n, err
 }
 
 func (cw *cacheWriter) Close() error {
-	var err error
-	cw.closeOnce.Do(func() {
-		err = cw.original.Close()
-		cw.pipeWriter.Close()
+	cw.finish(false)
+	return cw.body.Close()
+}
+
+func (cw *cacheWriter) finish(complete bool) {
+	cw.once.Do(func() {
+		if cw.writer == nil {
+			return
+		}
+		if !complete {
+			cw.writer.Close()
+			return
+		}
+		if err := cw.writer.Commit(); err != nil {
+			logging.Logger.Error("failed to cache blob", "digest", cw.digest, "error", err)
+			return
+		}
+		logging.Logger.Info("successfully cached blob", "digest", cw.digest)
 	})
-	return err
 }

@@ -2,11 +2,14 @@ package proxy
 
 import (
 	"sync"
+	"time"
 
 	"oci-proxy/internal/pkg/config"
 	"oci-proxy/internal/pkg/logging"
 	"oci-proxy/internal/pkg/proxy/cache"
 )
+
+const persistInterval = 5 * time.Minute
 
 type CacheManager struct {
 	cfg    *config.Config
@@ -15,9 +18,21 @@ type CacheManager struct {
 }
 
 func NewCacheManager(cfg *config.Config) *CacheManager {
-	return &CacheManager{
+	cm := &CacheManager{
 		cfg:    cfg,
 		caches: make(map[string]*cache.Cache),
+	}
+	go cm.persistPeriodically()
+	return cm
+}
+
+// persistPeriodically bounds how much of the index a non-graceful shutdown can
+// lose; entries missing from it become orphaned files on the next start.
+func (cm *CacheManager) persistPeriodically() {
+	ticker := time.NewTicker(persistInterval)
+	defer ticker.Stop()
+	for range ticker.C {
+		cm.PersistAll()
 	}
 }
 

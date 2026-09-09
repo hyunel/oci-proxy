@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -8,7 +9,7 @@ import (
 
 // RegistrySettings defines the settings for a registry.
 type RegistrySettings struct {
-	Auth            Auth        `yaml:"auth,omitempty"`
+	Auth            *Auth       `yaml:"auth,omitempty"`
 	CacheDir        string      `yaml:"cache_dir,omitempty"`
 	CacheMaxSize    StorageSize `yaml:"cache_max_size,omitempty"`
 	UpstreamProxy   string      `yaml:"upstream_proxy,omitempty"`
@@ -39,7 +40,22 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 	config.applyDefaults()
+	if err := config.validate(); err != nil {
+		return nil, err
+	}
 	return config, nil
+}
+
+func (c *Config) validate() error {
+	if _, err := c.Defaults.Client(); err != nil {
+		return fmt.Errorf("defaults: %w", err)
+	}
+	for name, settings := range c.Registries {
+		if _, err := settings.Client(); err != nil {
+			return fmt.Errorf("registry %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func (c *Config) applyDefaults() {
@@ -54,7 +70,7 @@ func (c *Config) applyDefaults() {
 
 	for name, registrySettings := range c.Registries {
 		merged := c.Defaults
-		if registrySettings.Auth.Username != "" {
+		if registrySettings.Auth != nil {
 			merged.Auth = registrySettings.Auth
 		}
 

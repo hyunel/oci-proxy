@@ -19,7 +19,7 @@ registries:
       username: "my-username"
       password: "my-secret-token"
     cache_dir: /tmp/nvcr-cache
-    upstream_proxy: "socks5://user:pass@host:port"
+    upstream_proxy: "socks5://user:pass@127.0.0.1:1080"
   another.registry.com:
     auth:
       username: ""

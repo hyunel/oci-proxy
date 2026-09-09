@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -47,7 +49,6 @@ type Cache struct {
 	evictions atomic.Int64
 
 	persistMu    sync.Mutex
-	lastPersist  time.Time
 	persistDirty atomic.Bool
 }
 
@@ -112,72 +113,84 @@ func (c *Cache) GetReader(key string) (io.ReadCloser, int64, bool) {
 	return file, size, true
 }
 
-func (c *Cache) Put(key string, reader io.Reader, expectedDigest string) error {
+type Writer struct {
+	cache  *Cache
+	key    string
+	digest string
+	file   *os.File
+	hasher hash.Hash
+	size   int64
+}
+
+func (c *Cache) NewWriter(key, expectedDigest string) (*Writer, error) {
 	if c.cacheDir == "" {
-		_, err := io.Copy(io.Discard, reader)
-		return err
+		return nil, errors.New("cache is disabled")
 	}
-
-	tmpFile, err := os.CreateTemp(c.cacheDir, "blob-*.tmp")
+	file, err := os.CreateTemp(c.cacheDir, "blob-*.tmp")
 	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
+		return nil, fmt.Errorf("failed to create temp file: %w", err)
 	}
-	tmpPath := tmpFile.Name()
+	return &Writer{cache: c, key: key, digest: expectedDigest, file: file, hasher: sha256.New()}, nil
+}
 
-	defer func() {
-		tmpFile.Close()
-		os.Remove(tmpPath)
-	}()
+func (w *Writer) Write(p []byte) (int, error) {
+	n, err := w.file.Write(p)
+	w.hasher.Write(p[:n])
+	w.size += int64(n)
+	return n, err
+}
 
-	hasher := sha256.New()
-	size, err := io.Copy(tmpFile, io.TeeReader(reader, hasher))
-	if err != nil {
-		return fmt.Errorf("failed to write to temp file: %w", err)
+func (w *Writer) Commit() error {
+	defer w.Close()
+
+	c := w.cache
+	if actual := "sha256:" + hex.EncodeToString(w.hasher.Sum(nil)); actual != w.digest {
+		return fmt.Errorf("digest mismatch: expected %s, got %s", w.digest, actual)
+	}
+	if c.maxSize > 0 && w.size > c.maxSize {
+		return fmt.Errorf("size %d exceeds max cache size %d", w.size, c.maxSize)
 	}
 
-	if err := tmpFile.Sync(); err != nil {
+	tmpPath := w.file.Name()
+	if err := w.file.Sync(); err != nil {
 		return fmt.Errorf("failed to sync temp file: %w", err)
 	}
-
-	actualDigest := "sha256:" + hex.EncodeToString(hasher.Sum(nil))
-	if actualDigest != expectedDigest {
-		return fmt.Errorf("digest mismatch: expected %s, got %s", expectedDigest, actualDigest)
+	if err := w.file.Close(); err != nil {
+		return fmt.Errorf("failed to close temp file: %w", err)
 	}
-
-	if c.maxSize > 0 && size > c.maxSize {
-		logging.Logger.Warn("file size exceeds max cache size, skipping cache", "key", key, "size", size, "maxSize", c.maxSize)
-		return nil
-	}
-
-	finalPath := filepath.Join(c.cacheDir, key)
-	if err := os.Rename(tmpPath, finalPath); err != nil {
+	if err := os.Rename(tmpPath, filepath.Join(c.cacheDir, w.key)); err != nil {
 		return fmt.Errorf("failed to move cached file: %w", err)
 	}
+	w.file = nil
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	if ee, ok := c.cache[key]; ok {
-		c.ll.MoveToFront(ee)
-		e := ee.Value.(*entry)
-		oldSize := e.Size
-		e.Size = size
-		e.LastAccess = time.Now()
-		c.size.Add(size - oldSize)
-	} else {
-		e := &entry{
-			Key:        key,
-			Size:       size,
-			LastAccess: time.Now(),
-		}
-		ee := c.ll.PushFront(e)
-		c.cache[key] = ee
-		c.size.Add(size)
-	}
-
+	c.insertLocked(w.key, w.size)
 	c.evictIfNeeded()
 	c.persistDirty.Store(true)
 	return nil
+}
+
+func (w *Writer) Close() error {
+	if w.file == nil {
+		return nil
+	}
+	tmpPath := w.file.Name()
+	w.file.Close()
+	w.file = nil
+	return os.Remove(tmpPath)
+}
+
+func (c *Cache) insertLocked(key string, size int64) {
+	if ee, ok := c.cache[key]; ok {
+		c.ll.MoveToFront(ee)
+		e := ee.Value.(*entry)
+		c.size.Add(size - e.Size)
+		e.Size, e.LastAccess = size, time.Now()
+		return
+	}
+	c.cache[key] = c.ll.PushFront(&entry{Key: key, Size: size, LastAccess: time.Now()})
+	c.size.Add(size)
 }
 
 func (c *Cache) evictIfNeeded() {
@@ -291,7 +304,6 @@ func (c *Cache) Persist() error {
 	}
 
 	c.persistDirty.Store(false)
-	c.lastPersist = time.Now()
 	return nil
 }
 
@@ -358,8 +370,42 @@ func (c *Cache) load() error {
 	c.size.Add(totalSize)
 	c.mu.Unlock()
 
-	logging.Logger.Info("loaded cache from persistence", "loaded", len(validEntries), "skipped", skippedEntries, "size", c.size.Load())
+	orphans := c.removeOrphans()
+	logging.Logger.Info("loaded cache from persistence", "loaded", len(validEntries), "skipped", skippedEntries, "orphans", orphans, "size", c.size.Load())
 	return nil
+}
+
+// removeOrphans drops files the index does not know about, which is what a
+// non-graceful shutdown leaves behind; they would otherwise never be evicted
+// and would keep the cache growing past cache_max_size.
+func (c *Cache) removeOrphans() int {
+	dirEntries, err := os.ReadDir(c.cacheDir)
+	if err != nil {
+		logging.Logger.Warn("failed to scan cache directory", "path", c.cacheDir, "error", err)
+		return 0
+	}
+
+	persistName := filepath.Base(c.persistencePath())
+	removed := 0
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for _, dirEntry := range dirEntries {
+		name := dirEntry.Name()
+		if dirEntry.IsDir() || name == persistName {
+			continue
+		}
+		if _, known := c.cache[name]; known {
+			continue
+		}
+		if err := os.Remove(filepath.Join(c.cacheDir, name)); err != nil {
+			logging.Logger.Warn("failed to remove orphaned cache file", "name", name, "error", err)
+			continue
+		}
+		removed++
+	}
+	return removed
 }
 
 func (c *Cache) Stats() CacheStats {

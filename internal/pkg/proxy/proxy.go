@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"cmp"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"oci-proxy/internal/pkg/config"
 	"oci-proxy/internal/pkg/logging"
 	"oci-proxy/internal/pkg/proxy/middleware"
+	"oci-proxy/internal/pkg/registry"
 )
 
 //go:embed all:web
@@ -90,15 +92,16 @@ func newProxyHandler(proxy *httputil.ReverseProxy, cacheManager *CacheManager, c
 	}))
 
 	webRoot, _ := fs.Sub(webFS, "web")
-	fs := http.FileServer(http.FS(webRoot))
+	fileServer := http.FileServer(http.FS(webRoot))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-		if path == "/" {
-			path = "/index.html"
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		if name == "" {
+			name = "index.html"
 		}
 
-		if _, err := webRoot.Open(strings.TrimPrefix(path, "/")); err == nil {
-			fs.ServeHTTP(w, r)
+		if file, err := webRoot.Open(name); err == nil {
+			file.Close()
+			fileServer.ServeHTTP(w, r)
 			return
 		}
 
@@ -122,44 +125,27 @@ func (ps *ProxyServer) PersistCache() {
 
 func newDirector(cfg *config.Config) func(*http.Request) {
 	return func(req *http.Request) {
-		remoteHost := cfg.DefaultRegistry
+		path := registry.Parse(req.URL.Path).SplitHost()
+		host := cmp.Or(path.Host, cfg.DefaultRegistry)
 
-		path := req.URL.Path
-		parts := strings.Split(strings.Trim(path, "/"), "/")
-
-		if len(parts) >= 2 && parts[0] == "v2" {
-			potentialRegistry := parts[1]
-			if strings.Contains(potentialRegistry, ".") {
-				remoteHost = potentialRegistry
-				req.URL.Path = "/v2/" + strings.Join(parts[2:], "/")
-			} else if !strings.Contains(potentialRegistry, "/") {
-				req.URL.Path = "/v2/library/" + strings.Join(parts[1:], "/")
-			}
-		}
-
-		settings := cfg.GetRegistrySettings(remoteHost)
+		settings := cfg.GetRegistrySettings(host)
 		if settings.Insecure != nil && *settings.Insecure {
 			req.URL.Scheme = "http"
 		} else {
 			req.URL.Scheme = "https"
 		}
 
-		req.URL.Host = remoteHost
-		req.Host = remoteHost
+		req.URL.Host = host
+		req.Host = host
+		req.URL.Path = path.UpstreamPath(host)
+
+		// stale RawPath would keep EscapedPath returning the pre-rewrite path
+		req.URL.RawPath = ""
 		req.RequestURI = ""
 		req.Header.Del("Authorization")
 	}
 }
 
 func isRegistryAllowed(r *http.Request, cfg *config.Config) bool {
-	path := r.URL.Path
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-
-	if len(parts) >= 2 && parts[0] == "v2" {
-		potentialRegistry := parts[1]
-		if strings.Contains(potentialRegistry, ".") {
-			return cfg.IsRegistryAllowed(potentialRegistry)
-		}
-	}
-	return cfg.IsRegistryAllowed(cfg.DefaultRegistry)
+	return cfg.IsRegistryAllowed(cmp.Or(registry.Parse(r.URL.Path).SplitHost().Host, cfg.DefaultRegistry))
 }
